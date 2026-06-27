@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Квалификация</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, Arial, sans-serif; font-size: 13px; background: #fff; padding: 12px; }
+
+  .ai-header {
+    background: #7c3aed;
+    border-radius: 6px 6px 0 0;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .ai-header-left { display: flex; align-items: center; gap: 8px; }
+  .ai-title { color: #fff; font-size: 13px; font-weight: 600; }
+  .ai-sub { color: #c4b5fd; font-size: 10px; margin-top: 1px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid #c4b5fd; border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .ai-progress { padding: 10px 14px 8px; border: 1px solid #ede9fe; border-top: none; background: #faf5ff; }
+  .prog-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 5px; }
+  .prog-label { color: #6d28d9; font-weight: 500; }
+  .prog-count { color: #7c3aed; font-weight: 600; }
+  .prog-track { background: #ede9fe; border-radius: 3px; height: 5px; overflow: hidden; }
+  .prog-fill { height: 100%; background: #7c3aed; border-radius: 3px; transition: width 0.5s ease; }
+
+  .ai-items { border: 1px solid #ede9fe; border-top: none; padding: 8px 12px; display: flex; flex-direction: column; gap: 5px; }
+
+  .item { display: flex; align-items: flex-start; gap: 7px; padding: 6px 8px; border-radius: 5px; }
+  .item.ok { background: #f0fdf4; }
+  .item.bad { background: #fef2f2; border: 0.5px solid #fecaca; }
+  .item.loading { background: #f5f3ff; }
+
+  .item-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+  .item.ok .item-icon { color: #16a34a; }
+  .item.bad .item-icon { color: #dc2626; }
+  .item.loading .item-icon { color: #7c3aed; }
+
+  .item-title { font-size: 12px; font-weight: 600; }
+  .item.ok .item-title { color: #166534; }
+  .item.bad .item-title { color: #991b1b; }
+  .item.loading .item-title { color: #5b21b6; }
+  .item-desc { font-size: 11px; color: #6b7280; line-height: 1.3; margin-top: 2px; }
+  .item.bad .item-desc { color: #ef4444; }
+
+  .ai-footer {
+    border: 1px solid #ede9fe;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    padding: 8px 14px;
+    background: #faf5ff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .footer-meta { font-size: 10px; color: #7c3aed; }
+  .footer-btn {
+    background: #7c3aed;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 11px;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .footer-btn:hover { background: #6d28d9; }
+
+  .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px; color: #991b1b; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div id="root">
+  <div class="ai-header">
+    <div class="ai-header-left">
+      <span style="font-size:18px;">🧠</span>
+      <div>
+        <div class="ai-title">AI Квалификация сделки</div>
+        <div class="ai-sub" id="sources-label">Анализирую данные сделки...</div>
+      </div>
+    </div>
+    <div class="spinner" id="spinner"></div>
+  </div>
+
+  <div class="ai-progress" id="progress-block" style="display:none;">
+    <div class="prog-row">
+      <span class="prog-label">Готовность к продаже</span>
+      <span class="prog-count" id="prog-count">0 из 0</span>
+    </div>
+    <div class="prog-track">
+      <div class="prog-fill" id="prog-fill" style="width:0%"></div>
+    </div>
+  </div>
+
+  <div class="ai-items" id="items-block">
+    <div class="item loading">
+      <span class="item-icon">⏳</span>
+      <div>
+        <div class="item-title">Загружаю данные сделки</div>
+        <div class="item-desc">Подключаюсь к Битрикс24...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ai-footer">
+    <div class="footer-meta" id="footer-time">Инициализация...</div>
+    <button class="footer-btn" id="refresh-btn" onclick="runAnalysis()">🔄 Обновить</button>
+  </div>
+</div>
+
+<script src="https://api.bitrix24.com/api/v1/"></script>
+<script>
+  var DEAL_ID = null;
+  var BX24_READY = false;
+
+  function getUrlParam(name) {
+    var params = new URLSearchParams(window.location.search);
+    return params.get(name);
+  }
+
+  var criteria = [
+    { key: 'need',       label: 'Потребность выяснена',      question: 'Что именно нужно клиенту?' },
+    { key: 'lpr',        label: 'ЛПР определён',             question: 'Кто принимает решение о покупке?' },
+    { key: 'budget',     label: 'Бюджет подтверждён',        question: 'Какой бюджет одобрен?' },
+    { key: 'deadline',   label: 'Срок договора уточнён',     question: 'Когда нужно подписать договор?' },
+    { key: 'delivery',   label: 'Дата поставки названа',     question: 'К какой дате нужно оборудование?' },
+    { key: 'kp_sent',    label: 'КП отправлено',             question: 'Было ли отправлено коммерческое предложение?' },
+    { key: 'feedback',   label: 'Обратная связь по КП',      question: 'Клиент дал обратную связь по КП?' },
+  ];
+
+  function setLoading(msg) {
+    document.getElementById('sources-label').textContent = msg;
+    document.getElementById('spinner').style.display = 'block';
+  }
+
+  function setDone(msg) {
+    document.getElementById('sources-label').textContent = msg;
+    document.getElementById('spinner').style.display = 'none';
+  }
+
+  function renderItems(results) {
+    var ok = results.filter(r => r.status === 'ok').length;
+    var total = results.length;
+    var pct = Math.round(ok / total * 100);
+
+    document.getElementById('progress-block').style.display = 'block';
+    document.getElementById('prog-count').textContent = ok + ' из ' + total;
+    document.getElementById('prog-fill').style.width = pct + '%';
+
+    var html = '';
+    results.forEach(function(r) {
+      var cls = r.status === 'ok' ? 'ok' : 'bad';
+      var icon = r.status === 'ok' ? '✅' : '⚠️';
+      html += '<div class="item ' + cls + '">';
+      html += '<span class="item-icon">' + icon + '</span>';
+      html += '<div><div class="item-title">' + r.label + '</div>';
+      if (r.detail) html += '<div class="item-desc">' + r.detail + '</div>';
+      html += '</div></div>';
+    });
+    document.getElementById('items-block').innerHTML = html;
+    document.getElementById('footer-time').textContent = '🕐 Обновлено: ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+  }
+
+  function analyzeWithAI(deal, activities, webhookUrl) {
+    setLoading('Анализирую через Claude AI...');
+
+    var context = 'Сделка: ' + (deal.TITLE || '') + '\n';
+    context += 'Стадия: ' + (deal.STAGE_ID || '') + '\n';
+    context += 'Сумма: ' + (deal.OPPORTUNITY || 'не указана') + '\n';
+    context += 'Комментарии и активности:\n';
+    if (activities && activities.length) {
+      activities.slice(0, 10).forEach(function(a) {
+        context += '- ' + (a.DESCRIPTION || a.SUBJECT || a.COMMENT || '') + '\n';
+      });
+    }
+
+    fetch('/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deal_id: DEAL_ID, context: context, webhook: webhookUrl })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      setDone('Звонки · письма · комментарии');
+      renderItems(data.results);
+    })
+    .catch(function(e) {
+      setDone('Ошибка анализа');
+      document.getElementById('items-block').innerHTML =
+        '<div class="error-box">Не удалось получить ответ от AI. Проверьте что сервер запущен.</div>';
+    });
+  }
+
+  function runAnalysis() {
+    if (!BX24_READY) {
+      setLoading('BX24 не подключён — режим демо');
+      renderDemoItems();
+      return;
+    }
+
+    setLoading('Загружаю данные сделки...');
+
+    BX24.callMethod('crm.deal.get', { id: DEAL_ID }, function(dealRes) {
+      if (dealRes.error()) {
+        setDone('Ошибка загрузки сделки');
+        return;
+      }
+      var deal = dealRes.data();
+
+      BX24.callMethod('crm.activity.list', {
+        filter: { OWNER_TYPE_ID: 2, OWNER_ID: DEAL_ID },
+        select: ['ID', 'SUBJECT', 'DESCRIPTION', 'TYPE_ID', 'CREATED'],
+        order: { CREATED: 'DESC' },
+        start: 0
+      }, function(actRes) {
+        var activities = actRes.error() ? [] : actRes.data();
+        analyzeWithAI(deal, activities);
+      });
+    });
+  }
+
+  function renderDemoItems() {
+    var demo = [
+      { status: 'ok',  label: 'Потребность выяснена',    detail: 'Данные из сделки' },
+      { status: 'ok',  label: 'ЛПР определён',           detail: 'Контакт привязан к сделке' },
+      { status: 'bad', label: 'Бюджет не подтверждён',   detail: 'Нет данных в комментариях' },
+      { status: 'bad', label: 'Срок договора не уточнён',detail: 'Не упоминается в переписке' },
+      { status: 'bad', label: 'Дата поставки не названа',detail: 'Уточните у клиента' },
+      { status: 'ok',  label: 'КП отправлено',           detail: 'Найдено в активностях' },
+      { status: 'bad', label: 'Обратная связь по КП',    detail: 'Нет реакции клиента' },
+    ];
+    setDone('Демо-режим · подключите AI для анализа');
+    renderItems(demo);
+  }
+
+  window.addEventListener('load', function() {
+    try {
+      BX24.init(function() {
+        BX24_READY = true;
+        var placement = BX24.placement.info();
+        if (placement && placement.options && placement.options.ID) {
+          DEAL_ID = placement.options.ID;
+        } else {
+          DEAL_ID = getUrlParam('ENTITY_ID') || getUrlParam('deal_id') || '1';
+        }
+        runAnalysis();
+      });
+    } catch(e) {
+      BX24_READY = false;
+      DEAL_ID = getUrlParam('deal_id') || '1';
+      renderDemoItems();
+    }
+  });
+</script>
+</body>
+</html>
