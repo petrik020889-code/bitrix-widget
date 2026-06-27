@@ -1,7 +1,6 @@
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import json
 import urllib.request
-import urllib.parse
 import os
 
 CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '')
@@ -62,11 +61,21 @@ def ask_claude(context):
                 text = text[4:]
         return json.loads(text)
 
+def serve_widget(handler):
+    with open('widget.html', 'rb') as f:
+        content = f.read()
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'text/html; charset=utf-8')
+    handler.send_header('Access-Control-Allow-Origin', '*')
+    handler.end_headers()
+    handler.wfile.write(content)
+
 class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/' or self.path.startswith('/widget'):
-            self.path = '/widget.html'
-        return super().do_GET()
+            serve_widget(self)
+        else:
+            super().do_GET()
 
     def do_POST(self):
         if self.path == '/analyze':
@@ -87,7 +96,7 @@ class Handler(SimpleHTTPRequestHandler):
                 response = json.dumps({'results': results}).encode()
             except Exception as e:
                 results = [
-                    {'label': c['label'], 'status': 'bad', 'detail': 'Установите CLAUDE_API_KEY'}
+                    {'label': c['label'], 'status': 'bad', 'detail': str(e)[:50]}
                     for c in CHECKLIST
                 ]
                 response = json.dumps({'results': results, 'error': str(e)}).encode()
@@ -98,8 +107,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(response)
         else:
-            self.send_response(404)
-            self.end_headers()
+            serve_widget(self)
 
     def do_OPTIONS(self):
         self.send_response(200)
@@ -114,5 +122,5 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8000))
     print(f"Сервер запущен: http://localhost:{port}")
-    print(f"Claude API key: {'установлен ✓' if CLAUDE_API_KEY else 'НЕ установлен — работает демо-режим'}")
+    print(f"Claude API key: {'установлен ✓' if CLAUDE_API_KEY else 'НЕ установлен'}")
     HTTPServer(('', port), Handler).serve_forever()
