@@ -56,7 +56,6 @@ def ask_claude(context):
     with urllib.request.urlopen(req, timeout=30) as resp:
         data = json.loads(resp.read())
         text = data['content'][0]['text'].strip()
-        # убираем ```json если Claude добавил
         if text.startswith('```'):
             text = text.split('```')[1]
             if text.startswith('json'):
@@ -87,7 +86,6 @@ class Handler(SimpleHTTPRequestHandler):
                     })
                 response = json.dumps({'results': results}).encode()
             except Exception as e:
-                # демо-режим если нет ключа
                 results = [
                     {'label': c['label'], 'status': 'bad', 'detail': 'Установите CLAUDE_API_KEY'}
                     for c in CHECKLIST
@@ -114,7 +112,7 @@ class Handler(SimpleHTTPRequestHandler):
         print(f"[{self.address_string()}] {fmt % args}")
 
 if __name__ == '__main__':
-    port = 8000
+    port = int(os.environ.get('PORT', 8000))
     print(f"Сервер запущен: http://localhost:{port}")
     print(f"Claude API key: {'установлен ✓' if CLAUDE_API_KEY else 'НЕ установлен — работает демо-режим'}")
     HTTPServer(('', port), Handler).serve_forever()
