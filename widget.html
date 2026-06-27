@@ -167,9 +167,10 @@
     });
     document.getElementById('items-block').innerHTML = html;
     document.getElementById('footer-time').textContent = '🕐 Обновлено: ' + new Date().toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    try { BX24.fitWindow(); } catch(e) {}
   }
 
-  function analyzeWithAI(deal, activities, webhookUrl) {
+  function analyzeWithAI(deal, activities) {
     setLoading('Анализирую через Claude AI...');
 
     var context = 'Сделка: ' + (deal.TITLE || '') + '\n';
@@ -185,7 +186,7 @@
     fetch('/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deal_id: DEAL_ID, context: context, webhook: webhookUrl })
+      body: JSON.stringify({ deal_id: DEAL_ID, context: context })
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -196,6 +197,7 @@
       setDone('Ошибка анализа');
       document.getElementById('items-block').innerHTML =
         '<div class="error-box">Не удалось получить ответ от AI. Проверьте что сервер запущен.</div>';
+      try { BX24.fitWindow(); } catch(e) {}
     });
   }
 
