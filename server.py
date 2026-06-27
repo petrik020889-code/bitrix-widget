@@ -15,7 +15,7 @@ CHECKLIST = [
     {'key': 'feedback', 'label': 'Обратная связь по КП',      'question': 'Клиент дал обратную связь по КП?'},
 ]
 
-def ask_claude(context):
+def ask_claude_qualify(context):
     questions = '\n'.join([f"- {c['key']}: {c['question']}" for c in CHECKLIST])
     prompt = f"""Ты анализируешь CRM-сделку. На основе данных ниже ответь на каждый вопрос: выяснено (yes) или нет (no).
 Если есть конкретная информация — добавь короткую деталь (до 60 символов).
@@ -61,6 +61,55 @@ def ask_claude(context):
                 text = text[4:]
         return json.loads(text)
 
+
+def ask_claude_questions(missing_labels, context):
+    items = '\n'.join([f'- {l}' for l in missing_labels])
+    prompt = f"""Ты опытный менеджер по продажам B2B. Помоги коллеге задать клиенту вопросы, чтобы мягко выяснить недостающую информацию.
+
+Контекст сделки:
+{context}
+
+Что нужно выяснить:
+{items}
+
+Для каждого пункта придумай один вопрос клиенту. Требования:
+- Не в лоб, а мягко и естественно, как в живом разговоре
+- Звучит как забота о клиенте, а не допрос
+- Отвечая на вопрос, клиент невольно даёт именно нужную информацию
+- Короткий, разговорный, без канцелярщины
+- На русском языке
+
+Ответь строго в формате JSON-массива без пояснений:
+[
+  {{"label": "название критерия", "question": "текст вопроса"}},
+  ...
+]"""
+
+    body = json.dumps({
+        'model': 'claude-haiku-4-5-20251001',
+        'max_tokens': 800,
+        'messages': [{'role': 'user', 'content': prompt}]
+    }).encode()
+
+    req = urllib.request.Request(
+        'https://api.anthropic.com/v1/messages',
+        data=body,
+        headers={
+            'x-api-key': CLAUDE_API_KEY,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+        }
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read())
+        text = data['content'][0]['text'].strip()
+        if text.startswith('```'):
+            text = text.split('```')[1]
+            if text.startswith('json'):
+                text = text[4:]
+        return json.loads(text)
+
+
 def serve_widget(handler):
     with open('widget.html', 'rb') as f:
         content = f.read()
@@ -70,6 +119,7 @@ def serve_widget(handler):
     handler.end_headers()
     handler.wfile.write(content)
 
+
 class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/' or self.path.startswith('/widget'):
@@ -78,13 +128,14 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self):
-        if self.path == '/analyze':
-            length = int(self.headers.get('Content-Length', 0))
-            body = json.loads(self.rfile.read(length))
-            context = body.get('context', '')
+        length = int(self.headers.get('Content-Length', 0))
+        raw = self.rfile.read(length)
 
+        if self.path == '/analyze':
+            body = json.loads(raw) if raw else {}
+            context = body.get('context', '')
             try:
-                ai = ask_claude(context)
+                ai = ask_claude_qualify(context)
                 results = []
                 for c in CHECKLIST:
                     item = ai.get(c['key'], {})
@@ -106,6 +157,23 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(response)
+
+        elif self.path == '/questions':
+            body = json.loads(raw) if raw else {}
+            missing = body.get('missing', [])
+            context = body.get('context', '')
+            try:
+                result = ask_claude_questions(missing, context)
+                response = json.dumps({'questions': result}).encode()
+            except Exception as e:
+                response = json.dumps({'error': str(e)}).encode()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(response)
+
         else:
             serve_widget(self)
 
